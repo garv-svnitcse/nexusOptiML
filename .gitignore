@@ -1,0 +1,15 @@
+# Virtual Environment & Python cache
+.venv/
+venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
+catboost_info/
+
+# Large Raw Datasets (>50MB / GitHub 100MB limit)
+data/train.csv
+data/test.csv
+
+# Redundant duplicate submissions in data/ (Official submission is in root submission.csv)
+data/submission_*.csv
