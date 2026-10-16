@@ -19,7 +19,8 @@ E-commerce reverse logistics and product returns cause massive operational frict
 | :---: | :--- | :--- | :--- | :---: |
 | **v1** | [`notebook_v1_baseline_models.ipynb`](./notebook_v1_baseline_models.ipynb) | Classical Baselines & Initial Benchmarking | AdaBoost, Random Forest, Basic XGBoost, Basic CatBoost | 0.6224 – 0.6595 |
 | **v2** | [`notebook_v2_tuned_super_ensemble.ipynb`](./notebook_v2_tuned_super_ensemble.ipynb) | Scaled 500k Data, Tuned Boosters & Scipy SLSQP Blend | Tuned XGBoost, Tuned CatBoost, Tuned LightGBM + Constrained Weighted Blend | **0.6747** |
-| **v3** | [`notebook_v3_antioverfit_kfold_stacking.ipynb`](./notebook_v3_antioverfit_kfold_stacking.ipynb) | Anti-Overfit Stratified K-Fold OOF Stacking | 3-Fold OOF Validation + $L_2$-Regularized Logistic Meta-Learner + Test Averaging | **0.6721** *(100% OOF Leak-Free)* |
+| **v3** | [`notebook_v3_antioverfit_kfold_stacking.ipynb`](./notebook_v3_antioverfit_kfold_stacking.ipynb) | Anti-Overfit Stratified K-Fold OOF Stacking | 3-Fold OOF Validation + $L_2$-Regularized Logistic Meta-Learner + Test Averaging | **0.6721** *(100% OOF)* |
+| **v4** | [`notebook_v4_gradient_descent_advanced_stacking.ipynb`](./notebook_v4_gradient_descent_advanced_stacking.ipynb) | Gradient Descent Optimization & Multi-Level Meta Stacking | SGD LogLoss Meta + Newton L2 GD + XGBoost Tree Ensemble Meta + Hybrid Blend | **0.6721** *(LogLoss 0.4435)* |
 
 ---
 
