@@ -356,7 +356,115 @@ plt.tight_layout()
 plt.show()
 """))
 
-# Cell 11: Test Set Inference & Export
+# Cell 11: Markdown 50% Holdout Test Evaluation
+cells.append(nbf.v4.new_markdown_cell("""## 4. Strict 50% Train / 50% Unseen Test Set Holdout Evaluation
+To evaluate out-of-sample generalization under strict holdout constraints:
+1. Split the dataset strictly into **50% Training (250,000 instances)** and **50% Completely Unseen Test Data (250,000 instances)** with stratification.
+2. Train base models (XGBoost, CatBoost, LightGBM) on the 50% train portion.
+3. Train meta-learners on train-level out-of-fold predictions.
+4. Evaluate all architectures on the **50% Unseen Test Data** ($N = 250,000$).
+"""))
+
+# Cell 12: 50% Holdout Evaluation Code
+cells.append(nbf.v4.new_code_cell("""print("Executing Strict 50% Train / 50% Unseen Test Split Evaluation...")
+t_holdout = time.time()
+
+# 50% / 50% Stratified Split
+X_tr50, X_te50, y_tr50, y_te50 = train_test_split(
+    X, y, test_size=0.50, random_state=42, stratify=y
+)
+print(f"50% Train Split: {len(X_tr50):,} instances | 50% Unseen Test Split: {len(X_te50):,} instances")
+
+# 1. Fit Base Models on 50% Train
+xgb_50 = xgb.XGBClassifier(n_estimators=300, max_depth=6, learning_rate=0.05, subsample=0.85, colsample_bytree=0.8, reg_alpha=0.3, reg_lambda=2.0, eval_metric='logloss', random_state=42, n_jobs=-1).fit(X_tr50, y_tr50)
+cb_50 = CatBoostClassifier(iterations=350, depth=6, learning_rate=0.05, l2_leaf_reg=5, random_strength=0.2, subsample=0.85, eval_metric='Logloss', random_seed=42, verbose=0).fit(X_tr50, y_tr50)
+lgb_50 = lgb.LGBMClassifier(n_estimators=300, num_leaves=48, learning_rate=0.05, min_child_samples=35, subsample=0.85, colsample_bytree=0.8, reg_alpha=0.3, reg_lambda=2.0, random_state=42, n_jobs=-1, verbose=-1).fit(X_tr50, y_tr50)
+
+p_te50_xgb = xgb_50.predict_proba(X_te50)[:, 1]
+p_te50_cb = cb_50.predict_proba(X_te50)[:, 1]
+p_te50_lgb = lgb_50.predict_proba(X_te50)[:, 1]
+
+# 2. Train-Level OOF for Meta-Learner fitting
+skf50 = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
+oof_tr50_xgb = np.zeros(len(X_tr50))
+oof_tr50_cb = np.zeros(len(X_tr50))
+oof_tr50_lgb = np.zeros(len(X_tr50))
+
+for tr_i, va_i in skf50.split(X_tr50, y_tr50):
+    s_xtr, s_ytr = X_tr50.iloc[tr_i], y_tr50.iloc[tr_i]
+    s_xva = X_tr50.iloc[va_i]
+    m_x = xgb.XGBClassifier(n_estimators=200, max_depth=6, learning_rate=0.06, subsample=0.85, colsample_bytree=0.8, reg_alpha=0.3, reg_lambda=2.0, eval_metric='logloss', random_state=42, n_jobs=-1).fit(s_xtr, s_ytr)
+    m_c = CatBoostClassifier(iterations=200, depth=6, learning_rate=0.06, l2_leaf_reg=5, eval_metric='Logloss', random_seed=42, verbose=0).fit(s_xtr, s_ytr)
+    m_l = lgb.LGBMClassifier(n_estimators=200, num_leaves=45, learning_rate=0.06, min_child_samples=40, subsample=0.85, colsample_bytree=0.8, reg_alpha=0.3, reg_lambda=2.0, random_state=42, n_jobs=-1, verbose=-1).fit(s_xtr, s_ytr)
+    oof_tr50_xgb[va_i] = m_x.predict_proba(s_xva)[:, 1]
+    oof_tr50_cb[va_i] = m_c.predict_proba(s_xva)[:, 1]
+    oof_tr50_lgb[va_i] = m_l.predict_proba(s_xva)[:, 1]
+
+meta_X_tr50 = np.column_stack([logit(np.clip(oof_tr50_xgb, eps, 1-eps)), logit(np.clip(oof_tr50_cb, eps, 1-eps)), logit(np.clip(oof_tr50_lgb, eps, 1-eps))])
+meta_X_te50 = np.column_stack([logit(np.clip(p_te50_xgb, eps, 1-eps)), logit(np.clip(p_te50_cb, eps, 1-eps)), logit(np.clip(p_te50_lgb, eps, 1-eps))])
+
+meta_gd_50 = LogisticRegression(C=0.1, random_state=42).fit(meta_X_tr50, y_tr50)
+meta_xgb_50 = xgb.XGBClassifier(n_estimators=80, max_depth=2, learning_rate=0.03, subsample=0.8, colsample_bytree=0.8, reg_alpha=0.5, reg_lambda=5.0, eval_metric='logloss', random_state=42).fit(meta_X_tr50, y_tr50)
+
+p_te50_gd = meta_gd_50.predict_proba(meta_X_te50)[:, 1]
+p_te50_xgb_meta = meta_xgb_50.predict_proba(meta_X_te50)[:, 1]
+p_te50_hybrid = 0.5 * p_te50_gd + 0.5 * p_te50_xgb_meta
+p_te50_blend = (p_te50_xgb + p_te50_cb + p_te50_lgb) / 3.0
+
+holdout_models = {
+    '🏆 Super Hybrid Meta-Ensemble': p_te50_hybrid,
+    'Gradient Descent L2 Meta-Learner': p_te50_gd,
+    'XGBoost Ensemble Meta-Learner': p_te50_xgb_meta,
+    'Linear Equal Blend Ensemble': p_te50_blend,
+    'LightGBM (Tuned)': p_te50_lgb,
+    'XGBoost (Tuned)': p_te50_xgb,
+    'CatBoost (Tuned)': p_te50_cb
+}
+
+holdout_rows = []
+for name, probs in holdout_models.items():
+    preds = (probs >= 0.5).astype(int)
+    cm = confusion_matrix(y_te50, preds)
+    holdout_rows.append({
+        'Model Architecture': name,
+        'Accuracy': accuracy_score(y_te50, preds),
+        'Precision': precision_score(y_te50, preds, zero_division=0),
+        'Recall': recall_score(y_te50, preds, zero_division=0),
+        'F1-Score': f1_score(y_te50, preds, zero_division=0),
+        'ROC-AUC (50% Test)': roc_auc_score(y_te50, probs),
+        'PR-AUC': average_precision_score(y_te50, probs),
+        'Log Loss': log_loss(y_te50, probs),
+        'True Negatives': cm[0, 0],
+        'False Positives': cm[0, 1],
+        'False Negatives': cm[1, 0],
+        'True Positives': cm[1, 1]
+    })
+
+holdout_df = pd.DataFrame(holdout_rows).sort_values('ROC-AUC (50% Test)', ascending=False).reset_index(drop=True)
+print("=== Strict 50% Unseen Test Set Evaluation (N = 250,000 Samples) ===")
+display(holdout_df.style.highlight_max(subset=['Accuracy', 'Precision', 'Recall', 'F1-Score', 'ROC-AUC (50% Test)', 'PR-AUC'], color='#d4edda')
+                        .highlight_min(subset=['Log Loss'], color='#d4edda')
+                        .format({
+                            'Accuracy': '{:.4f}',
+                            'Precision': '{:.4f}',
+                            'Recall': '{:.4f}',
+                            'F1-Score': '{:.4f}',
+                            'ROC-AUC (50% Test)': '{:.4f}',
+                            'PR-AUC': '{:.4f}',
+                            'Log Loss': '{:.4f}',
+                            'True Negatives': '{:,}',
+                            'False Positives': '{:,}',
+                            'False Negatives': '{:,}',
+                            'True Positives': '{:,}'
+                        }))
+print(f"50% Holdout evaluation completed in {time.time()-t_holdout:.2f}s!")
+"""))
+
+# Cell 13: Test Set Inference & Export
+cells.append(nbf.v4.new_markdown_cell("""## 5. Working with `test.csv`: Final Test Set Inference & Submission
+Now we perform inference on the official unlabelled test set (`data/test.csv`, $N = 479,995$) using K-Fold model averaging and the calibrated Meta-Learners.
+"""))
+
 cells.append(nbf.v4.new_code_cell("""# Load test dataset and generate K-Fold Fold-Averaged Predictions
 print("Executing inference on data/test.csv (N = 479,995)...")
 df_test_raw = pd.read_csv('data/test.csv')
